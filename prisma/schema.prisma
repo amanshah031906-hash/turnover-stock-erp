@@ -1,0 +1,289 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Unit {
+  METER
+  PIECE
+}
+
+enum DesignStatus {
+  NOT_COMPLETED
+  COMPLETED
+  APPROVED
+}
+
+enum RawMaterialCategory {
+  FABRIC
+  TRIMS
+  PACKAGING
+}
+
+enum PaymentStatus {
+  UNPAID
+  PARTIAL
+  PAID
+}
+
+model RawMaterial {
+  id              Int                 @id @default(autoincrement())
+  name            String
+  color           String?
+  unit            Unit
+  category        RawMaterialCategory @default(FABRIC)
+  subtype         String              @default("Main Fabric")
+  quantityInStock Float               @default(0)
+  minStock        Float               @default(20)
+  costPerUnit     Float
+  createdAt       DateTime            @default(now())
+  lowStockSeen Boolean @default(true)
+
+  recipeItems DesignRecipeItem[]
+  deductions  MaterialDeduction[]
+}
+
+model Design {
+  id          Int          @id @default(autoincrement())
+  name        String
+  description String?
+  status      DesignStatus @default(NOT_COMPLETED)
+  barcode     String?      @unique
+  sku         String?      @unique
+  approvedAt  DateTime?
+  createdAt   DateTime     @default(now())
+
+  inStock Int @default(0)
+
+  defaultLabourCost    Float @default(0)
+  defaultMiscCost      Float @default(0)
+  defaultShippingCost  Float @default(0)
+  defaultMarkupPercent Float @default(100)
+  defaultGstPercent    Float @default(18)
+
+  recipe      DesignRecipeItem[]
+  completions DesignCompletion[]
+  invoiceItems InvoiceItem[]
+  files       DesignFile[]
+  approvalItems ApprovalItem[]
+}
+
+model DesignRecipeItem {
+  id               Int    @id @default(autoincrement())
+  designId         Int
+  design           Design @relation(fields: [designId], references: [id], onDelete: Cascade)
+  rawMaterialId    Int
+  rawMaterial      RawMaterial @relation(fields: [rawMaterialId], references: [id])
+  quantityRequired Float
+}
+
+model DesignCompletion {
+  id                Int      @id @default(autoincrement())
+  designId          Int
+  design            Design   @relation(fields: [designId], references: [id], onDelete: Cascade)
+  quantityCompleted Int
+  totalCost         Float
+  completedAt       DateTime @default(now())
+
+  deductions MaterialDeduction[]
+}
+
+model MaterialDeduction {
+  id             Int      @id @default(autoincrement())
+  completionId   Int
+  completion     DesignCompletion @relation(fields: [completionId], references: [id], onDelete: Cascade)
+  rawMaterialId  Int
+  rawMaterial    RawMaterial @relation(fields: [rawMaterialId], references: [id])
+  amountDeducted Float
+}
+
+enum SalesChannel {
+  SHOP
+  EXHIBITION
+}
+
+model Invoice {
+  id            Int     @id @default(autoincrement())
+  invoiceNumber String?
+  clientName    String?
+
+  channel        SalesChannel @default(SHOP)
+  exhibitionName String?
+
+  isTrial         Boolean   @default(false)
+  trialResolvedAt DateTime?
+  reminderDays    Int?
+
+  miscCost     Float @default(0)
+  shippingCost Float @default(0)
+
+  discountAmount Float   @default(0)
+  isGift         Boolean @default(false)
+
+  gstPercent Float
+  gstAmount  Float
+  subtotal   Float
+  grandTotal Float
+
+  amountPaid    Float         @default(0)
+  creditApplied Float         @default(0)
+  paymentStatus PaymentStatus @default(UNPAID)
+
+  returnedAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  items             InvoiceItem[]
+  payments          Payment[]
+  creditNotesIssued CreditNote[]           @relation("OriginalInvoice")
+  creditRedemptions CreditNoteRedemption[]
+}
+
+model InvoiceItem {
+  id        Int     @id @default(autoincrement())
+  invoiceId Int
+  invoice   Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  designId  Int
+  design    Design  @relation(fields: [designId], references: [id], onDelete: Cascade)
+
+  quantity Int
+
+  fabricCost    Float
+  trimsCost     Float
+  packagingCost Float
+  labourCost    Float
+
+  markupPercent Float
+  markupAmount  Float
+}
+
+enum CreditNoteStatus {
+  UNREDEEMED
+  REDEEMED
+}
+
+model CreditNote {
+  id           Int              @id @default(autoincrement())
+  creditNumber String?
+
+  originalInvoiceId Int
+  originalInvoice   Invoice @relation("OriginalInvoice", fields: [originalInvoiceId], references: [id])
+
+  clientName String?
+  amount     Float
+  reason     String?
+
+  receiptChecked Boolean @default(false)
+  itemUndamaged  Boolean @default(false)
+
+  status CreditNoteStatus @default(UNREDEEMED)
+
+  redeemedAt DateTime?
+
+  redemptions CreditNoteRedemption[]
+
+  createdAt DateTime @default(now())
+}
+
+model CreditNoteRedemption {
+  id           Int      @id @default(autoincrement())
+  invoiceId    Int
+  invoice      Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  creditNoteId Int
+  creditNote   CreditNote @relation(fields: [creditNoteId], references: [id])
+  amountUsed   Float
+  createdAt    DateTime @default(now())
+}
+
+model Payment {
+  id        Int      @id @default(autoincrement())
+  invoiceId Int
+  invoice   Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  amount    Float
+  paidAt    DateTime @default(now())
+}
+
+enum DesignFileCategory {
+  TECH_PACK
+  PAPER_CUTOUT
+  MODEL_SHOOT
+}
+
+model DesignFile {
+  id        Int                @id @default(autoincrement())
+  designId  Int
+  design    Design             @relation(fields: [designId], references: [id], onDelete: Cascade)
+  category  DesignFileCategory
+  fileName  String
+  mimeType  String
+  data      Bytes
+  createdAt DateTime           @default(now())
+}
+
+enum ExpenseCategory {
+  RENT
+  SALARIES
+  ELECTRICITY
+  TRANSPORT
+  MISCELLANEOUS
+}
+
+model Expense {
+  id        Int             @id @default(autoincrement())
+  date      DateTime
+  category  ExpenseCategory
+  amount    Float
+  note      String?
+  createdAt DateTime        @default(now())
+}
+
+enum ApprovalStatus {
+  OUT
+  SOLD
+  RETURNED
+}
+
+model Approval {
+  id             Int            @id @default(autoincrement())
+  approvalNumber String?
+  contextName    String
+  customerName   String?
+  notes          String?
+  address        String?
+  phone          String?
+  channel        SalesChannel   @default(SHOP)
+  status         ApprovalStatus @default(OUT)
+
+  gstPercent              Float   @default(18)
+  advancePaid             Float   @default(0)
+  balanceCollectionMethod String?
+
+  createdAt  DateTime  @default(now())
+  resolvedAt DateTime?
+
+  items ApprovalItem[]
+}
+
+model ApprovalItem {
+  id         Int      @id @default(autoincrement())
+  approvalId Int
+  approval   Approval @relation(fields: [approvalId], references: [id], onDelete: Cascade)
+  designId   Int?
+  design     Design?  @relation(fields: [designId], references: [id])
+  name       String
+  price      Float
+  quantity   Int      @default(1)
+}
+
+model Settings {
+  id              Int     @id @default(1)
+  labourIsFixed   Boolean @default(true)
+  shippingIsFixed Boolean @default(true)
+
+  username     String  @default("admin")
+  passwordHash String?
+}
